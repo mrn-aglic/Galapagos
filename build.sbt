@@ -22,7 +22,7 @@ scalacOptions ++= Seq(
 
 lazy val root = (project in file(".")).enablePlugins(PlayScala, org.nlogo.PlayScrapePlugin)
 
-val tortoiseVersion = "1.0-827c56e"
+val tortoiseVersion = "1.0-1f8ad33"
 
 libraryDependencies ++= Seq(
   ehcache,
@@ -82,6 +82,7 @@ scrapeRoutes ++= Seq(
   "/launch",
   "/ntango-build",
   "/ntango-play",
+  "/ntango-play-standalone",
   "/web"
   )
 

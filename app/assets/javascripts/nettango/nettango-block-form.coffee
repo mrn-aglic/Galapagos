@@ -5,6 +5,25 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
     block:       undefined # NetTangoBlock
     blockNumber: undefined # Integer
     submitEvent: undefined # String
+    attributeTemplate:
+      """
+      <fieldset class="ntb-attribute">
+        <legend class="widget-edit-legend">
+          {{ itemType }} {{ number }} {{> delete-button }}
+        </legend>
+        <div class="flex-column">
+          <attribute
+            id="{{ number }}"
+            attribute="{{ this }}"
+            attributeType="{{ itemType }}"
+            codeFormat="{{ codeFormat }}"
+            />
+        </div>
+      </fieldset>
+      """
+    createAttribute:
+      (type) -> (number) -> { name: "#{type} #{number}", type: "num", unit: undefined, def:  "10" }
+
   }
 
   on: {
@@ -14,17 +33,6 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
       target = @get('target')
       target.fire(@get('submitEvent'), {}, @getBlock(), @get('blockNumber'))
       return
-
-    # (Context, String) => Boolean
-    'ntb-add-attribute': (_, attributeType) ->
-      num = @get("block.#{attributeType}.length")
-      @push("block.#{attributeType}", @defaultAttribute(attributeType, num))
-      return false
-
-    # (Context, String, Integer) => Boolean
-    '*.ntb-delete-attribute': (_, attributeType, num) ->
-      @splice("block.#{attributeType}", num, 1)
-      return false
 
   }
 
@@ -60,8 +68,8 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
   # (String, String, NetTangoBlock, Integer, String, String) => Unit
   show: (target, spaceName, block, blockNumber, submitLabel, submitEvent) ->
     @_setBlock(block)
-    @set('target', target)
-    @set('spaceName', spaceName)
+    @set(     'target', target)
+    @set(  'spaceName', spaceName)
     @set('blockNumber', blockNumber)
     @set('submitLabel', submitLabel)
     @set('submitEvent', submitEvent)
@@ -121,7 +129,8 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
       if attrValues.type is 'range'
         [ 'min', 'max', 'step' ].forEach((f) -> attribute[f] = attrValues[f])
       else if attrValues.type is 'select'
-        attribute.values = attrValues.valuesString.split(/\s*;\s*|\n/).filter((s) -> s isnt "")
+        attribute.values = attrValues.values
+
       attribute
 
     attributeCopies
@@ -131,6 +140,7 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
     , labeledInput: RactiveTwoWayLabeledInput
     , dropdown:     RactiveTwoWayDropdown
     , attribute:    RactiveNetTangoAttribute
+    , arrayView:    RactiveArrayView
   }
 
   partials: {
@@ -142,32 +152,27 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
       """
       {{# block }}
 
-      <labeledInput id="{{ id }}-name" name="name" type="text" value="{{ action }}" labelStr="Display name"
-        divClass="ntb-flex-column" class="ntb-input" />
-
-      <spacer height="15px" />
-
       <div class="flex-row ntb-form-row">
+
+        <labeledInput id="{{ id }}-name" name="name" type="text" value="{{ action }}" labelStr="Display name"
+          divClass="ntb-flex-column" class="ntb-input" />
+
         <dropdown id="{{ id }}-type" name="{{ builderType }}" selected="{{ builderType }}" label="Type"
           choices="{{ [ 'Procedure', 'Command', '1 Block Clause (if/ask/create)', '2 Block Clause (ifelse)' ] }}"
           divClass="ntb-flex-column"
           />
+
         <labeledInput id="{{ id }}-limit" name="limit" type="number" value="{{ limit }}" labelStr="Limit"
           min="1" max="100" divClass="ntb-flex-column" class="ntb-input" />
+
       </div>
 
-      <spacer height="15px" />
-
-      <labeledInput id="{{ id }}-format" name="format" type="text" value="{{ format }}" labelStr="Code Format ({#} for param, {P#} for property)"
-        divClass="ntb-flex-column" class="ntb-input" />
-
-      <div class="flex-row ntb-form-row">
-        <labeledInput id="{{ id }}-f-weight" name="font-weight" type="number" value="{{ fontWeight }}" labelStr="Font weight"
-          divClass="ntb-flex-column" class="ntb-input" />
-        <labeledInput id="{{ id }}-f-size"   name="font-size"   type="number" value="{{ fontSize }}"   labelStr="Font size"
-          divClass="ntb-flex-column" class="ntb-input" />
-        <labeledInput id="{{ id }}-f-face"   name="font-face"   type="text"   value="{{ fontFace }}"   labelStr="Typeface"
-          divClass="ntb-flex-column" class="ntb-input" />
+      <div class="ntb-flex-column">
+        <label for="{{ id }}-format" class="widget-edit-input-label" style="">NetLogo code format ({#} for parameter, {P#} for property)</label>
+        <div style="flex-grow: 1;">
+          <textarea class="widget-edit-text widget-edit-input ntb-code-format" id="{{ id }}-format" name="format"
+            value="{{ format }}" twoway="true" ></textarea>
+        </div>
       </div>
 
       <div class="flex-row ntb-form-row">
@@ -179,24 +184,35 @@ window.RactiveNetTangoBlockForm = EditForm.extend({
           divClass="ntb-flex-column" class="ntb-input" />
       </div>
 
-      <div class="flex-column" >
-        <div class="ntb-block-defs-controls">
-          <label>Block Parameters</label>
-          <button class="ntb-button" type="button" on-click="[ 'ntb-add-attribute', 'params' ]">Add Parameter</button>
-        </div>
-        {{#params:number }}
-          <attribute id="{{ number }}" attribute="{{ this }}" attributeType="params" />
-        {{/params }}
-      </div>
+      <arrayView
+        id="block-{{ id }}-parameters"
+        itemTemplate="{{ attributeTemplate }}"
+        items="{{ params }}"
+        itemType="Parameter"
+        itemTypePlural="Parameters"
+        createItem="{{ createAttribute('Parameter') }}"
+        viewClass="ntb-attributes"
+        codeFormat=""
+        />
 
-      <div class="flex-column" >
-        <div class="ntb-block-defs-controls">
-          <label>Block Properties</label>
-          <button class="ntb-button" type="button" on-click="[ 'ntb-add-attribute', 'properties' ]">Add Property</button>
-        </div>
-        {{#properties:number }}
-          <attribute id="{{ number }}" attribute="{{ this }}" attributeType="properties" />
-        {{/properties }}
+      <arrayView
+        id="block-{{ id }}-properties"
+        itemTemplate="{{ attributeTemplate }}"
+        items="{{ properties }}"
+        itemType="Property"
+        itemTypePlural="Properties"
+        createItem="{{ createAttribute('Property') }}"
+        viewClass="ntb-attributes"
+        codeFormat="P"
+        />
+
+      <div class="flex-row ntb-form-row">
+        <labeledInput id="{{ id }}-f-weight" name="font-weight" type="number" value="{{ fontWeight }}" labelStr="Font weight"
+          divClass="ntb-flex-column" class="ntb-input" />
+        <labeledInput id="{{ id }}-f-size"   name="font-size"   type="number" value="{{ fontSize }}"   labelStr="Font size"
+          divClass="ntb-flex-column" class="ntb-input" />
+        <labeledInput id="{{ id }}-f-face"   name="font-face"   type="text"   value="{{ fontFace }}"   labelStr="Typeface"
+          divClass="ntb-flex-column" class="ntb-input" />
       </div>
 
       {{/block }}

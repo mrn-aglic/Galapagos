@@ -6,9 +6,14 @@ class window.NetTangoController
     Mousetrap.bind(['ctrl+shift+e', 'command+shift+e'], () => @exportNetTango('json'))
 
     @ractive = @createRactive(element, @theOutsideWorld, @playMode)
+
+    # If you have custom components that will be needed inside partial templates loaded dynamically at runtime
+    # such as with the `RactiveArrayView`, you can specify them here.  -Jeremy B August 2019
+    Ractive.components.attribute = RactiveNetTangoAttribute
+
     @ractive.on('*.ntb-save',         (_, code)        => @exportNetTango('storage'))
     @ractive.on('*.ntb-recompile',    (_, code)        => @setNetTangoCode(code))
-    @ractive.on('*.ntb-model-change', (_, title, code) => @theOutsideWorld.setModelCode(title, code))
+    @ractive.on('*.ntb-model-change', (_, title, code) => @theOutsideWorld.setModelCode(code, title))
     @ractive.on('*.ntb-code-dirty',   (_)              => @markCodeDirty())
     @ractive.on('*.ntb-export-page',  (_)              => @exportNetTango('standalone'))
     @ractive.on('*.ntb-export-json',  (_)              => @exportNetTango('json'))
@@ -90,6 +95,8 @@ class window.NetTangoController
     nt       = @storage.inProgress
 
     if (nt? and not @playMode and @firstLoad)
+      if (nt.code?)
+        nt.code = NetTangoController.removeOldNetTangoCode(nt.code)
       @builder.load(nt)
     else
       netTangoCodeElement = @theOutsideWorld.getElementById('ntango-code')
@@ -99,8 +106,6 @@ class window.NetTangoController
         if (@playMode and @storageId? and nt.playProgress? and nt.playProgress[data.storageId]?)
           progress    = nt.playProgress[@storageId]
           data.spaces = progress.spaces
-          newCode     = NetTangoController.replaceNetTangoCode(data.code, progress.code)
-          data.code   = newCode
         @builder.load(data)
       else
         @builder.refreshCss()
@@ -118,27 +123,14 @@ class window.NetTangoController
     return
 
   # (String) => Unit
-  setNetTangoCode: (ntbCode) ->
+  setNetTangoCode: (_) ->
     widgetController = @theOutsideWorld.getWidgetController()
-    oldCode = widgetController.code()
-    newCode = NetTangoController.replaceNetTangoCode(oldCode, ntbCode)
     @hideRecompileOverlay()
-    widgetController.setCode(newCode, () =>
+    widgetController.ractive.fire('recompile', () =>
       widgets = widgetController.ractive.get('widgetObj')
       @rerunForevers(widgets)
     )
     return
-
-  # (String, String) => String
-  @replaceNetTangoCode: (oldCode, builderCode) ->
-    BEGIN = "; --- NETTANGO BEGIN ---"
-    END   = "; --- NETTANGO END ---"
-    builderCode = "\n#{BEGIN}\n\n#{builderCode}\n\n#{END}"
-    newCode = if (oldCode.indexOf(BEGIN) >= 0)
-       oldCode.replace(new RegExp("((?:^|\n)#{BEGIN}\n)([^]*)(\n#{END})"), builderCode)
-    else
-       oldCode + builderCode
-    newCode
 
   # (Array[File]) => Unit
   importNetTango: (files) ->
@@ -147,6 +139,7 @@ class window.NetTangoController
     reader = new FileReader()
     reader.onload = (e) =>
       ntData = JSON.parse(e.target.result)
+      ntData.code = NetTangoController.removeOldNetTangoCode(ntData.code)
       @builder.load(ntData)
       return
     reader.readAsText(files[0])
@@ -176,7 +169,7 @@ class window.NetTangoController
 
     # Else target is 'standalone' - JMB August 2018
     parser      = new DOMParser()
-    ntPlayer    = new Request('./ntango-play')
+    ntPlayer    = new Request('./ntango-play-standalone')
     playerFetch = fetch(ntPlayer).then( (ntResp) ->
       if (not ntResp.ok)
         throw Error(ntResp)
@@ -197,10 +190,6 @@ class window.NetTangoController
   # (String, Document, NetTangoBuilderData) => Unit
   exportStandalone: (title, exportDom, netTangoData) ->
     netTangoData.storageId = NetTangoController.generateStorageId()
-
-    ntbCode = @getNetTangoCode()
-    newCode = NetTangoController.replaceNetTangoCode(netTangoData.code, ntbCode)
-    netTangoData.code = newCode
 
     netTangoCodeElement = exportDom.getElementById('ntango-code')
     netTangoCodeElement.textContent = JSON.stringify(netTangoData)
@@ -228,7 +217,7 @@ class window.NetTangoController
   # (NetTangoBuilderData) => Unit
   storeNetTangoData: (netTangoData) ->
     set = (prop) => @storage.set(prop, netTangoData[prop])
-    [ 'code', 'title', 'extraCss', 'spaces', 'tabOptions' ].forEach(set)
+    [ 'code', 'title', 'extraCss', 'spaces', 'tabOptions', 'netTangoToggles' ].forEach(set)
     return
 
   # () => Unit
@@ -278,3 +267,9 @@ class window.NetTangoController
   showError: (message) ->
     display = @ractive.findComponent('errorDisplay')
     display.show(message)
+
+  # (String) => String
+  @removeOldNetTangoCode: (code) ->
+    BEGIN = "; --- NETTANGO BEGIN ---"
+    END   = "; --- NETTANGO END ---"
+    code.replace(new RegExp("((?:^|\n)#{BEGIN}\n)([^]*)(\n#{END})"), "")

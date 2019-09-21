@@ -2,6 +2,7 @@ window.RactiveNetTangoSpace = Ractive.extend({
 
   data: () -> {
     playMode:      false, # Boolean
+    codeIsDirty:   false, # Boolean
     space:         null,  # NetTangoSpace
     netLogoCode:   "",    # String
     blockEditForm: null,  # RactiveNetTangoBlockForm
@@ -12,23 +13,23 @@ window.RactiveNetTangoSpace = Ractive.extend({
   on: {
 
     # (Context) => Unit
-    'complete': (_) ->
+    'render': (_) ->
       space = @get('space')
       @initNetTango(space)
       canvasId = @getNetTangoCanvasId(space)
-      space.netLogoCode = NetTango.exportCode(canvasId, 'NetLogo')
+      space.netLogoCode = NetTango.exportCode(canvasId, 'NetLogo').trim()
 
       NetTango.onProgramChanged(canvasId, (ntCanvasId) =>
         if (@get('space')?)
           # `space` can change after we're `complete`, so do not use the one we already got above -JMB 11/2018
           s = @get('space')
-          s.chains = NetTango.save(canvasId).program.chains
+          s.defs.program.chains = NetTango.save(canvasId).program.chains
           s.netLogoCode = NetTango.exportCode(ntCanvasId, 'NetLogo').trim()
-          @fire('ntb-code-change', {}, ntCanvasId, false)
+          @fire('ntb-code-changed', {}, false)
         return
       )
 
-      @fire('ntb-code-change', {}, canvasId, true)
+      @fire('ntb-code-changed', {}, true)
 
       @observe('space', ->
         @updateNetTango(@get('space'), false)
@@ -55,12 +56,6 @@ window.RactiveNetTangoSpace = Ractive.extend({
       @splice("space.defs.blocks", blockNumber, 1)
       @set("space.defsJson", JSON.stringify(space.defs, null, '  '))
       @updateNetTango(space)
-      return
-
-    # (Context, String) => Unit
-    'ntb-code-change': (_, ntCanvasId) ->
-      netTangoData = NetTango.save(ntCanvasId)
-      @set('space.defs.program', netTangoData.program)
       return
 
     # (Context, Integer) => Boolean
@@ -186,7 +181,9 @@ window.RactiveNetTangoSpace = Ractive.extend({
 
     NetTango.init(canvasId, space.defs)
 
-    space.chains = NetTango.save(canvasId).program.chains
+    netTangoData = NetTango.save(canvasId)
+    @set("space.defs",     netTangoData)
+    @set("space.defsJson", JSON.stringify(space.defs, null, '  '))
     return
 
   # (NetTangoSpace) => Unit
@@ -202,16 +199,21 @@ window.RactiveNetTangoSpace = Ractive.extend({
       # and reload, so we clear them out -JMB August 2018
       old.program.chains.filter((ch) -> ch.length > 1)
     else
-      space.chains.filter((ch) -> ch.length > 1)
+      space.defs.program.chains.filter((ch) -> ch.length > 1)
 
     NetTango.restore(canvasId, {
+      version:     space.defs.version,
       blocks:      space.defs.blocks,
       expressions: space.defs.expressions,
       program:     { chains: newChains }
     })
 
+    netTangoData = NetTango.save(canvasId)
+    @set("space.defs",     netTangoData)
+    @set("space.defsJson", JSON.stringify(space.defs, null, '  '))
+
     space.netLogoCode = NetTango.exportCode(canvasId, 'NetLogo')
-    @fire('ntb-code-change', {}, canvasId, false)
+    @fire('ntb-code-changed', {}, false)
     return
 
   # (NetTangoSpace) => Content
@@ -241,19 +243,22 @@ window.RactiveNetTangoSpace = Ractive.extend({
     """
     {{# space }}
     <div class="ntb-block-def">
-      <input type="text" class="ntb-block-space-name" value="{{ name }}"{{# playMode }} readOnly{{/}} on-change="ntb-code-change">
+      <input type="text" class="ntb-block-space-name" value="{{ name }}"{{# playMode }} readOnly{{/}} on-change="[ 'ntb-code-changed', false ]">
 
-      {{# !playMode }}
       <div class="ntb-block-defs-controls" >
-        <button id="add-block-button-{{ spaceId }}" class="ntb-button" type="button" on-click="[ 'ntb-show-block-defaults', this ]">Add Block ▼</button>
-        <button id="modify-block-button-{{ spaceId }}" class="ntb-button" type="button" on-click="[ 'ntb-show-block-modify', this ]" {{# defs.blocks.length === 0 }}disabled{{/}}>Modify Block ▼</button>
-        <button id="delete-space-button-{{ spaceId }}" class="ntb-button" type="button" on-click="[ 'ntb-confirm-delete', id ]" >Delete Block Space</button>
-        <labeledInput id="width-{{ spaceId }}" name="width" type="number" value="{{ width }}" labelStr="Width"
-          onChange="ntb-size-change" min="50" max="1600" divClass="ntb-flex-column" class="ntb-input" />
-        <labeledInput id="height-{{ spaceId }}" name="height" type="number" value="{{ height }}" labelStr="Height"
-          onChange="ntb-size-change" min="50" max="1600" divClass="ntb-flex-column" class="ntb-input" />
+        <button id="recompile-{{ spaceId }}" class="ntb-button" type="button" on-click="ntb-recompile-start"{{# !codeIsDirty }} disabled{{/}}>Recompile</button>
+
+        {{# !playMode }}
+          <button id="add-block-button-{{ spaceId }}" class="ntb-button" type="button" on-click="[ 'ntb-show-block-defaults', this ]">Add Block ▼</button>
+          <button id="modify-block-button-{{ spaceId }}" class="ntb-button" type="button" on-click="[ 'ntb-show-block-modify', this ]" {{# defs.blocks.length === 0 }}disabled{{/}}>Modify Block ▼</button>
+          <button id="delete-space-button-{{ spaceId }}" class="ntb-button" type="button" on-click="[ 'ntb-confirm-delete', id ]" >Delete Block Space</button>
+          <labeledInput id="width-{{ spaceId }}" name="width" type="number" value="{{ width }}" labelStr="Width"
+            onChange="ntb-size-change" min="50" max="1600" divClass="ntb-flex-column" class="ntb-input" />
+          <labeledInput id="height-{{ spaceId }}" name="height" type="number" value="{{ height }}" labelStr="Height"
+            onChange="ntb-size-change" min="50" max="1600" divClass="ntb-flex-column" class="ntb-input" />
+        {{/ !playMode }}
+
       </div>
-      {{/ !playMode }}
 
       <div class="nt-container" id="{{ spaceId }}" >
         <canvas id="{{ spaceId }}-canvas" class="nt-canvas" />

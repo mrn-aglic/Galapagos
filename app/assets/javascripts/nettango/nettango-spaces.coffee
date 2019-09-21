@@ -24,7 +24,7 @@ window.RactiveNetTangoSpaces = Ractive.extend({
       return
 
     # (Context, String, Boolean) => Unit
-    '*.ntb-code-change': (_, ntCanvasId, isInitialLoad) ->
+    '*.ntb-code-changed': (_, isInitialLoad) ->
       @updateCode(isInitialLoad)
       return
 
@@ -40,35 +40,41 @@ window.RactiveNetTangoSpaces = Ractive.extend({
       @updateCode(false)
       return
 
+    '*.ntb-recompile-start': (_) ->
+      @recompile()
   }
 
   # (Boolean) => Unit
   updateCode: (isInitialLoad) ->
     lastCode    = @get('lastCode')
-    newCode     = @assembleCode()
+    newCode     = @assembleCode(addSpaceNames = false)
     codeIsDirty = lastCode isnt newCode
     @set('codeIsDirty', codeIsDirty)
-    @set('code', newCode)
+    @set('code', @assembleCode(addSpaceNames = true))
     if codeIsDirty
-      if isInitialLoad
-        @set('lastCode', newCode)
-      else
+      @set('lastCode', newCode)
+      if not isInitialLoad
         @fire('ntb-code-dirty')
     return
 
   # () => Unit
   recompile: () ->
-    ntbCode = @assembleCode()
+    ntbCode = @assembleCode(addSpaceNames = false)
     @fire('ntb-recompile', ntbCode)
     @set('lastCode', ntbCode)
     @set('codeIsDirty', false)
     return
 
   # () => Unit
-  assembleCode: () ->
+  assembleCode: (addSpaceNames) ->
     spaces = @get('spaces')
-    spaceCodes = for space, _ in spaces
-      "; Code for #{space.name}\n#{space.netLogoCode}".trim()
+    spaceCodes =
+      spaces.map( (space) ->
+        if addSpaceNames
+          "; Code for #{space.name}\n#{space.netLogoCode ? ""}".trim()
+        else
+          (space.netLogoCode ? "").trim()
+      )
     spaceCodes.join("\n\n")
 
   # () => Array[NetTangoExpressionOperator]
@@ -97,7 +103,7 @@ window.RactiveNetTangoSpaces = Ractive.extend({
     spaces  = @get('spaces')
     id      = spaces.length
     spaceId = "ntb-defs-#{id}"
-    defs    = if spaceVals.defs? then spaceVals.defs else { blocks: [] }
+    defs    = if spaceVals.defs? then spaceVals.defs else { blocks: [], program: { chains: [] } }
     defs.expressions = defs.expressions ? @expressionDefaults()
     space = {
         id:              id
@@ -108,7 +114,6 @@ window.RactiveNetTangoSpaces = Ractive.extend({
       , defs:            defs
       , defsJson:        JSON.stringify(defs, null, '  ')
       , defsJsonChanged: false
-      , chains:          []
     }
     for propName in [ 'name', 'width', 'height' ]
       if(spaceVals.hasOwnProperty(propName))
@@ -125,11 +130,17 @@ window.RactiveNetTangoSpaces = Ractive.extend({
   template:
     # coffeelint: disable=max_line_length
     """
-    <blockEditForm parentClass="ntb-container" verticalOffset="10" />
+    <blockEditForm idBasis="ntb-block" parentClass="ntb-container" verticalOffset="10" />
 
     <div class="ntb-block-defs-list">
       {{#spaces:spaceNum }}
-        <tangoSpace space="{{ this }}" playMode="{{ playMode }}" popupMenu="{{ popupMenu }}" blockEditForm="{{ blockEditForm }}" />
+        <tangoSpace
+          space="{{ this }}"
+          playMode="{{ playMode }}"
+          popupMenu="{{ popupMenu }}"
+          blockEditForm="{{ blockEditForm }}"
+          codeIsDirty="{{ codeIsDirty }}"
+        />
       {{/spaces }}
     </div>
     <label for="ntb-code">NetLogo Code</label>
